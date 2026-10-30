@@ -1,0 +1,8 @@
+# Minimal Supabase CLI project file (the CLI fills in defaults). Used by `supabase link` / `supabase db push`.
+project_id = "mansa-qr-print"
+
+[db]
+major_version = 17
+
+[auth]
+enable_signup = false
