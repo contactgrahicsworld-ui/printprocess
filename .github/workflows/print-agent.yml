@@ -1,0 +1,81 @@
+name: print-agent
+
+on:
+  push:
+    paths: ['print-agent/**', '.github/workflows/print-agent.yml']
+  pull_request:
+    paths: ['print-agent/**', '.github/workflows/print-agent.yml']
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: print-agent
+
+jobs:
+  test-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: print-agent/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: print-agent/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      # Includes test/windows.integration.test.ts, which runs the REAL PowerShell
+      # printer/spooler/DPAPI scripts on the runner (no physical printer attached).
+      - run: npm test
+      - name: Parse PowerShell scripts
+        shell: pwsh
+        run: |
+          $bad = 0
+          Get-ChildItem scripts -Filter *.ps1 | ForEach-Object {
+            $errs = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errs) | Out-Null
+            if ($errs) { $bad++; $errs | ForEach-Object { Write-Error "$($_.Extent.File):$($_.Extent.StartLineNumber) $($_.Message)" } }
+          }
+          if ($bad) { exit 1 }
+      - name: Build MansaPrintAgent.exe (Node SEA, win-x64)
+        run: npm run build:exe
+      - name: Smoke test the executable
+        shell: pwsh
+        run: |
+          $exe = ".\build\MansaPrintAgent.exe"
+          $v = & $exe version
+          if ($v -ne '1.0.0') { throw "unexpected version '$v'" }
+          & $exe help | Out-Null
+          & $exe list-printers --json | Tee-Object -Variable printers
+          if ($LASTEXITCODE -ne 0) { throw "list-printers failed ($LASTEXITCODE)" }
+          $null = $printers | ConvertFrom-Json
+          & $exe doctor; Write-Host "doctor exit code $LASTEXITCODE (expected non-zero: no config/server on CI)"
+          Get-Content .\build\MansaPrintAgent.exe.sha256
+      - name: Download & verify SumatraPDF + WinSW (pinned hashes)
+        shell: pwsh
+        run: ./scripts/download-tools.ps1 -InstallDir "$env:RUNNER_TEMP\mpa-tools"
+      - name: Stage release bundle
+        shell: pwsh
+        run: |
+          $out = "$env:RUNNER_TEMP\MansaPrintAgent"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          Copy-Item build\MansaPrintAgent.exe, build\MansaPrintAgent.exe.sha256, scripts\*.ps1 $out
+          Copy-Item "$env:RUNNER_TEMP\mpa-tools\*" $out
+          Copy-Item ..\docs\PRINT_AGENT_INSTALL.md, ..\docs\PRINT_AGENT_VERIFY.md $out -ErrorAction SilentlyContinue
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MansaPrintAgent-win-x64
+          path: ${{ runner.temp }}/MansaPrintAgent
+          if-no-files-found: error
