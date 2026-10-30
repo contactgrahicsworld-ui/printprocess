@@ -62,7 +62,10 @@ export async function claimUpiPayment(ctx: AppContext, orderId: string, input: z
   if (o.status === "CANCELLED") throw new HttpError(409, "ORDER_CANCELLED", "Order was cancelled. / Order radd kar diya gaya.");
   if (Number(o.due_paise) <= 0) throw new HttpError(409, "ALREADY_PAID", "Nothing is due on this order. / Is order par kuch baaki nahi hai.");
   const claim = { method: "UPI", amountPaise: Number(o.due_paise), reference: input.reference, note: input.note, at: ctx.now().toISOString() };
-  await ctx.db.query("update orders set payment_claim = $2::jsonb where id = $1", [orderId, JSON.stringify(claim)]);
+  // jsonb_build_object with scalar params — avoids driver-side JSON double-encoding
+  await ctx.db.query(
+    "update orders set payment_claim = jsonb_build_object('method','UPI','amountPaise',$2::int,'reference',$3::text,'note',$4::text,'at',$5::text) where id = $1",
+    [orderId, claim.amountPaise, claim.reference, claim.note, claim.at]);
   return { ok: true, claim };
 }
 

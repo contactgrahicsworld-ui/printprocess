@@ -250,7 +250,17 @@ export async function trackOrderView(ctx: AppContext, orderId: string) {
     duePaise: due,
     shop: { name: shop.shopName, address: shop.address, phone: shop.phone },
     upiUri,
-    paymentClaim: (o.payment_claim as { method: string; reference: string; note: string | null; at: string } | null) ?? null,
+    paymentClaim: parsePaymentClaim(o.payment_claim),
     razorpayEnabled: ctx.config.razorpayEnabled && due > 0 && !["CANCELLED", "DELIVERED"].includes(o.status as string),
   };
+}
+
+function parsePaymentClaim(raw: unknown): { method: string; reference: string; note: string | null; at: string } | null {
+  if (!raw) return null;
+  try {
+    const v = typeof raw === "string" ? (JSON.parse(raw) as unknown) : raw;
+    return (v as { method: string; reference: string; note: string | null; at: string }) ?? null;
+  } catch {
+    return null;
+  }
 }
