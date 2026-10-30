@@ -6,6 +6,7 @@ import { hasHint, isUniqueViolation } from "@/lib/db/types";
 import type { Staff } from "@/lib/auth/types";
 import { HttpError } from "@/lib/http/respond";
 import { hmacHex, safeEqualHex } from "@/lib/security/crypto";
+import { LIMITS } from "@/lib/security/ratelimit";
 import { audit } from "./audit";
 import { loadShopSettings } from "./settings";
 
@@ -39,6 +40,30 @@ export async function recordPayment(ctx: AppContext, staff: Staff, orderId: stri
     const after = (await tx.query<{ paid_paise: number; due_paise: number }>("select paid_paise, due_paise from orders where id = $1", [orderId]))[0]!;
     return { paymentId: p.id, paidPaise: after.paid_paise, duePaise: after.due_paise };
   });
+}
+
+// ---------------------------------------------------------------- customer UPI claim
+export const claimSchema = z.object({
+  reference: z.string().trim().min(4, "UTR must be at least 4 characters").max(100),
+  note: z.string().trim().max(300).nullable().default(null),
+});
+
+/**
+ * Customer says "I have paid to the shop's UPI QR" — stores the UTR claim on the order.
+ * Staff see it in the admin order panel and record the payment after verifying in their UPI app.
+ */
+export async function claimUpiPayment(ctx: AppContext, orderId: string, input: z.infer<typeof claimSchema>, ip: string) {
+  if (!(await ctx.rateLimiter.hit(`claim:${ip}`, LIMITS.claim.max, LIMITS.claim.window))) {
+    throw new HttpError(429, "RATE_LIMITED", "Too many attempts. Please wait a few minutes.");
+  }
+  const o = (await ctx.db.query<{ status: string; due_paise: number; order_number: string }>(
+    "select status, due_paise, order_number from orders where id = $1 for update", [orderId]))[0];
+  if (!o) throw new HttpError(404, "NOT_FOUND", "Order not found");
+  if (o.status === "CANCELLED") throw new HttpError(409, "ORDER_CANCELLED", "Order was cancelled. / Order radd kar diya gaya.");
+  if (Number(o.due_paise) <= 0) throw new HttpError(409, "ALREADY_PAID", "Nothing is due on this order. / Is order par kuch baaki nahi hai.");
+  const claim = { method: "UPI", amountPaise: Number(o.due_paise), reference: input.reference, note: input.note, at: ctx.now().toISOString() };
+  await ctx.db.query("update orders set payment_claim = $2::jsonb where id = $1", [orderId, JSON.stringify(claim)]);
+  return { ok: true, claim };
 }
 
 // ---------------------------------------------------------------- receipts

@@ -376,7 +376,7 @@ export default function Portal({ qrToken, shopName, shopAddress }: { qrToken: st
                 {quote.adjustmentPaise > 0 && <tr><td className="py-1">Minimum order</td><td className="py-1 text-right">{inr(quote.adjustmentPaise)}</td></tr>}
               </tbody>
             </table>
-            <p className="mt-2 text-xs text-slate-500">Estimate. Final amount is confirmed by the shop. Pay at the counter. / Bhugtan counter par.</p>
+            <p className="mt-2 text-xs text-slate-500">Estimate. Submit ke baad dukaan ke UPI QR se pay karein ya counter par cash dein. Final amount shop confirm karta hai.</p>
           </div>
         )}
         {quoteError && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700" role="alert">{quoteError}</p>}

@@ -40,4 +40,5 @@ export const LIMITS = {
   submit: { max: 10, window: 600 },
   track: { max: 20, window: 600 },
   razorpay: { max: 10, window: 600 },
+  claim: { max: 5, window: 600 },
 } as const;

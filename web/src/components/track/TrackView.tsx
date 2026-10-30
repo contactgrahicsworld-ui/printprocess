@@ -10,7 +10,9 @@ type View = {
   items: { name: string; pagesTotal: number; pagesSelected: number; pageRanges: string | null; colorMode: string; duplex: string; paperSize: string; paperType: string | null; copies: number; totalSheets: number; pricePaise: number }[];
   orderServices: { label: string; amountPaise: number }[]; adjustmentPaise: number;
   totalPaise: number; paidPaise: number; duePaise: number;
-  shop: { name: string; address: string; phone: string | null }; upiUri: string | null; razorpayEnabled: boolean;
+  shop: { name: string; address: string; phone: string | null }; upiUri: string | null;
+  paymentClaim: { method: string; reference: string; note: string | null; at: string } | null;
+  razorpayEnabled: boolean;
 };
 
 const STEPS = ["RECEIVED", "UNDER_REVIEW", "APPROVED", "PRINTING", "READY", "DELIVERED"] as const;
@@ -28,6 +30,8 @@ export default function TrackView({ orderNumber, token, isNew }: { orderNumber: 
   const [err, setErr] = useState<string | null>(null);
   const [upiQr, setUpiQr] = useState<string | null>(null);
   const [payMsg, setPayMsg] = useState<string | null>(null);
+  const [utr, setUtr] = useState("");
+  const [claimState, setClaimState] = useState<"idle" | "sending" | "done">("idle");
 
   const load = useCallback(async () => {
     try {
@@ -58,6 +62,19 @@ export default function TrackView({ orderNumber, token, isNew }: { orderNumber: 
       }).open();
     } catch (e) {
       setPayMsg(e instanceof Error ? e.message : "Payment could not start.");
+    }
+  };
+
+  const claimPay = async () => {
+    if (utr.trim().length < 4) { setPayMsg("UTR / payment reference likhein (kam se kam 4 akshar). / Enter the UTR first."); return; }
+    setClaimState("sending"); setPayMsg(null);
+    try {
+      await api("/api/public/payments/claim", { body: { orderNumber, token, reference: utr.trim(), note: null } });
+      setClaimState("done"); setUtr("");
+      setTimeout(load, 800);
+    } catch (e) {
+      setClaimState("idle");
+      setPayMsg(e instanceof Error ? e.message : "Could not send. / Bheja nahi ja saka.");
     }
   };
 
@@ -126,15 +143,35 @@ export default function TrackView({ orderNumber, token, isNew }: { orderNumber: 
 
       {v.duePaise > 0 && !cancelled && (
         <div className="card text-center">
-          <h2 className="font-semibold">Pay / Bhugtan</h2>
-          <p className="text-sm text-slate-600">Pay at the counter with cash or UPI. Staff will confirm your payment.</p>
+          <h2 className="font-semibold">Pay / Bhugtan — {inr(v.duePaise)}</h2>
+          {v.upiUri ? (
+            <p className="mt-1 text-sm text-slate-600">Neeche ka QR GPay / PhonePe / Paytm se scan karein — payment <b>seedha dukaan ke UPI account</b> (owner ke mobile number) mein jaata hai.</p>
+          ) : (
+            <p className="text-sm text-slate-600">Pay at the counter with cash or UPI. Staff will confirm your payment.</p>
+          )}
           {upiQr && (
             <div className="mt-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={upiQr} alt="UPI payment QR" className="mx-auto h-52 w-52" />
-              <p className="text-xs text-slate-500">Scan with any UPI app. Payment is marked paid only after the shop confirms it.</p>
+              <p className="text-xs text-slate-500">{v.shop.name} ko bhejein · amount ₹{(v.duePaise / 100).toFixed(2)} pre-filled hai</p>
             </div>
           )}
+          {v.upiUri && <a href={v.upiUri} className="btn-primary mt-3 inline-block">UPI app se pay karein / Pay via UPI app</a>}
+          {v.paymentClaim ? (
+            <div className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800" data-testid="claim-received">
+              ✓ Aapka payment record mil gaya (UTR: <b>{v.paymentClaim.reference}</b>). Shop confirm karega — uske baad print shuru hoga.
+            </div>
+          ) : v.upiUri && claimState !== "done" && (
+            <div className="mt-4 border-t pt-3">
+              <p className="text-sm font-medium">Pay kar diya? / Already paid?</p>
+              <div className="mt-2 flex gap-2">
+                <input className="input" placeholder="UPI reference / UTR" value={utr} onChange={(e) => setUtr(e.target.value)} maxLength={100} aria-label="UPI reference" />
+                <button type="button" className="btn-primary px-4" disabled={claimState === "sending"} onClick={claimPay}>{claimState === "sending" ? "…" : "Maine pay kar diya"}</button>
+              </div>
+              <p className="mt-1 text-xs text-slate-500">UTR aapke UPI app ki payment details mein milta hai. Shop confirm karega.</p>
+            </div>
+          )}
+          {claimState === "done" && <p className="mt-2 text-sm text-emerald-700">Dukaan ko bata diya gaya ✓ / The shop has been notified.</p>}
           {v.razorpayEnabled && <button type="button" className="btn-primary mt-3" onClick={payOnline}>Pay online {inr(v.duePaise)}</button>}
           {payMsg && <p className="mt-2 text-sm text-slate-700">{payMsg}</p>}
         </div>

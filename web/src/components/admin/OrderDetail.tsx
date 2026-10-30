@@ -189,7 +189,16 @@ export default function OrderDetail({ orderId, realtime, staffId }: { orderId: s
             <ul className="space-y-1 text-xs text-slate-600">
               {d.payments.map((p) => <li key={p.id}>{fmtTime(p.created_at)} · {p.method} {inr(p.amount_paise)}{p.reference ? ` · ${p.reference}` : ""} · {p.recorded_by_name ?? (p.gateway_payment_id ? "gateway (verified webhook)" : "")}</li>)}
             </ul>
-            {o.due_paise > 0 && status !== "CANCELLED" && <PaymentForm due={o.due_paise} onSave={(b) => act(() => api(`/api/admin/orders/${orderId}/payments`, { body: b }), "Payment recorded")} />}
+            {o.due_paise > 0 && status !== "CANCELLED" && (
+              <>
+                {o.payment_claim && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900" data-testid="payment-claim">
+                    <b>Customer says paid via UPI:</b> UTR <b>{o.payment_claim.reference}</b> · {fmtTime(o.payment_claim.at)}{o.payment_claim.note ? ` · ${o.payment_claim.note}` : ""} — verify in your UPI app, then record below.
+                  </div>
+                )}
+                <PaymentForm due={o.due_paise} defaultMethod={o.payment_claim ? "UPI" : "CASH"} defaultRef={o.payment_claim?.reference ?? ""} onSave={(b) => act(() => api(`/api/admin/orders/${orderId}/payments`, { body: b }), "Payment recorded")} />
+              </>
+            )}
             <div className="border-t pt-2">
               <button className="btn-secondary w-full" onClick={() => act(async () => { const r = await api<{ receiptId: string }>(`/api/admin/orders/${orderId}/receipts`, { method: "POST" }); window.open(`/admin/receipts/${r.receiptId}`, "_blank"); }, "Receipt issued")}>Generate receipt</button>
               <ul className="mt-2 space-y-1 text-xs">
@@ -279,10 +288,10 @@ function RejectButton({ onReject }: { onReject: (reason: string) => void }) {
   return <button className="btn-danger" onClick={() => { const r = prompt("Reason for rejection (shown to customer):"); if (r && r.trim().length >= 3) onReject(r.trim()); }}>Reject</button>;
 }
 
-function PaymentForm({ due, onSave }: { due: number; onSave: (b: R) => void }) {
-  const [method, setMethod] = useState("CASH");
+function PaymentForm({ due, onSave, defaultMethod = "CASH", defaultRef = "" }: { due: number; onSave: (b: R) => void; defaultMethod?: string; defaultRef?: string }) {
+  const [method, setMethod] = useState(defaultMethod);
   const [amount, setAmount] = useState((due / 100).toFixed(2));
-  const [ref, setRef] = useState("");
+  const [ref, setRef] = useState(defaultRef);
   return (
     <form className="space-y-2 border-t pt-2" onSubmit={(e) => { e.preventDefault(); onSave({ method, amountPaise: Math.round(Number(amount) * 100), reference: ref.trim() || null }); }}>
       <div className="flex gap-2">

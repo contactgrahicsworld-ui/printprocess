@@ -250,6 +250,7 @@ export async function trackOrderView(ctx: AppContext, orderId: string) {
     duePaise: due,
     shop: { name: shop.shopName, address: shop.address, phone: shop.phone },
     upiUri,
+    paymentClaim: (o.payment_claim as { method: string; reference: string; note: string | null; at: string } | null) ?? null,
     razorpayEnabled: ctx.config.razorpayEnabled && due > 0 && !["CANCELLED", "DELIVERED"].includes(o.status as string),
   };
 }
